@@ -61,8 +61,29 @@ def handle_args(project):
             print name
 
 def check():
-    '''Check if afl-fuzz is on the PATH and AFL_PATH is set'''
-    pass
+    '''Check if afl-fuzz is on the PATH'''
+    binary = which('afl-fuzz')
+    if binary == None:
+        raise Exception('Could not find afl-fuzz binary, update your PATH')
+    else:
+        logger.info('Using ' + binary)
+
+def which(program):
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ['PATH'].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
 
 def run_command(cmd):
     try:
