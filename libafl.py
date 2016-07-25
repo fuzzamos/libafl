@@ -1,5 +1,7 @@
 #!/usr/bin/env python2
 
+from abc import ABCMeta, abstractmethod
+
 import argparse
 import os
 import subprocess
@@ -46,19 +48,24 @@ def parse_args():
 def handle_args(project):
     check()
     args = parse_args()
-    if args.command == 'init':
-        project.init(args.target)
-    elif args.command == 'init_all':
-        project.init_all()
-    elif args.command == 'build':
-        project.build(args.target)
-    elif args.command == 'build_all':
-        project.build_all()
-    elif args.command == 'run':
-        project.run(args.target)
-    elif args.command == 'list':
-        for name in project.targets.iterkeys():
-            print name
+
+    try:
+        if args.command == 'init':
+            project.init(args.target)
+        elif args.command == 'init_all':
+            project.init_all()
+        elif args.command == 'build':
+            project.build(args.target)
+        elif args.command == 'build_all':
+            project.build_all()
+        elif args.command == 'run':
+            project.run(args.target)
+        elif args.command == 'list':
+            for name in project.targets.iterkeys():
+                print name
+    except subprocess.CalledProcessError as e:
+        print e.output
+        raise e
 
 def check():
     '''Check if afl-fuzz is on the PATH'''
@@ -85,46 +92,61 @@ def which(program):
 
     return None
 
-def run_command(cmd):
-    try:
-        return subprocess.check_output(cmd, shell=True)
-    except Exception as e:
-        print e.output
-        raise e
-
-def popen(cmd):
-    try:
-        return subprocess.Popen(cmd, shell=True)
-    except Exception as e:
-        print e.output
-        raise e
-
 class AflProject(object):
     targets = {}
 
     def __init__(self, wrapper=None):
         self.wrapper = wrapper
 
-    def run_in_dir(self, target, func):
+    def run_in_dir(self, target, path, func):
         cwd = os.getcwd()
-        os.chdir(target.path)
+        os.chdir(path)
         func(target)
         os.chdir(cwd)
 
     def addTarget(self, name, target):
         self.targets[name] = target
 
+    def init(self, name):
+        if name in self.targets:
+            logger.info('Intializing ' + name)
+            target = self.targets[name]
+            self.init_target(target)
+        else:
+            raise Exception('Target %s does not exist' % name)
+
+    def init_all(self):
+        for name, target in self.targets.iteritems():
+            logger.info('Intializing ' + name)
+            self.init_target(target)
+
+    def init_target(self, target):
+        self.run_in_dir(
+            target,
+            target.root_path,
+            lambda target: target.init(),
+        )
+
     def build(self, name):
         if name in self.targets:
+            logger.info('Building ' + name)
             target = self.targets[name]
-            self.run_in_dir(target, lambda target: run_command(target.build()))
+            self.build_target(target)
         else:
             raise Exception('Target %s does not exist' % name)
 
     def build_all(self):
         for name, target in self.targets.iteritems():
             logger.info('Building ' + name)
-            self.run_in_dir(target, lambda target: run_command(target.build()))
+            self.build_target(target)
+
+    def build_target(self, target):
+        path = os.path.join(target.root_path, target.src_dir)
+        self.run_in_dir(
+            target,
+            path,
+            lambda target: target.build(),
+        )
 
     def run(self, name, wrapper=None, **kwargs):
         if wrapper == None:
@@ -143,31 +165,33 @@ class AflProject(object):
             raise Exception('Target %s does not exist' % name)
 
 class Target(object):
-    def set_afl_envs(self, cc=None, cxx=None, asan=False, msan=False, harden=True, optimize=True, cflags='', ldflags=''):
+    __metaclass__ = ABCMeta
+
+    def set_afl_envs(self, cc=None, cxx=None, asan=False, msan=False, harden=True, optimize=True, cflags=None, ldflags=None):
         if asan and msan:
             raise Exception('ASAN and MSAN can not be used together')
 
-        result = ''
+        result = {}
         if cc:
-            result += 'CC=%s ' % cc
+            result['CC'] = cc
         if cxx:
-            result += 'CXX=%s ' % cxx
+            result['CXX'] = cxx
         if asan:
-            result += 'AFL_USE_ASAN=1 '
+            result['AFL_USE_ASAN'] = '1'
         if msan:
-            result += 'AFL_USE_MSAN=1 '
+            result['AFL_USE_MSAN'] = '1'
         if harden:
-            result += 'AFL_HARDEN=1 '
+            result['AFL_HARDEN'] = '1'
         if not optimize:
-            result += 'AFL_DONT_OPTIMZE=1 '
+            result['AFL_DONT_OPTIMIZE'] = '1'
         if cflags:
-            result += 'CFLAGS=%s ' % cflags
+            result['CFLAGS'] = cflags
         if ldflags:
-            result += 'LDFLAGS=%s ' % ldflags
+            result['LDFLAGS'] = ldflags
 
-        return result.strip()
+        return result
 
-    def get(self):
+    def init(self):
         pass
 
     def build(self):
@@ -213,7 +237,14 @@ class AflTarget(Target):
              self.binary, self.binary_args)
         )
 
-class Tmux:
+class Wrapper:
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def run():
+        pass
+
+class TmuxWrapper(Wrapper):
     def run(self, cmd):
-        popen('tmux new-window "%s; bash -i"' % cmd)
-        run_command('tmux last-window')
+        subprocess.Popen('tmux new-window "%s; bash -i"' % cmd, shell=True)
+        subprocess.check_output(['tmux', 'last-window'])
