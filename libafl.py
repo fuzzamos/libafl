@@ -3,10 +3,11 @@
 from abc import ABCMeta, abstractmethod
 
 import argparse
-import os
-import subprocess
 import logging
+import os
 import pexpect
+import subprocess
+import time
 
 logging.basicConfig()
 logger = logging.getLogger('libafl')
@@ -40,6 +41,17 @@ def parse_args():
         metavar='TARGET',
         help='the target to run',
     )
+    run_parser.add_argument(
+        '--master',
+        action='store_true',
+        help='run this fuzzer as the master',
+    )
+
+    run_parser.add_argument(
+        '--slave',
+        metavar='N',
+        help='run N slave fuzzers',
+    )
 
     run_parser = subparsers.add_parser('list', help='list all targets')
 
@@ -59,7 +71,9 @@ def handle_args(project):
         elif args.command == 'build_all':
             project.build_all()
         elif args.command == 'run':
-            project.run(args.target)
+            project.run(
+                args.target,
+                **{'master': args.master, 'slave': args.slave})
         elif args.command == 'list':
             for name in project.targets.iterkeys():
                 print name
@@ -149,12 +163,16 @@ class AflProject(object):
         )
 
     def run(self, name, wrapper=None, **kwargs):
+        cwd = os.getcwd()
+
         if wrapper == None:
             wrapper = self.wrapper
 
         logger.info('Running ' + name)
         if name in self.targets:
-            cmd = self.targets[name].run(**kwargs)
+            target = self.targets[name]
+            os.chdir(target.root_path)
+            cmd = target.run(**kwargs)
             logger.info("Running cmd: " + cmd)
             if wrapper != None:
                 wrapper.run(cmd)
@@ -162,7 +180,10 @@ class AflProject(object):
                 p = pexpect.spawn(cmd, dimensions=(100, 100))
                 p.interact()
         else:
+            os.chdir(cwd)
             raise Exception('Target %s does not exist' % name)
+
+        os.chdir(cwd)
 
 class Target(object):
     __metaclass__ = ABCMeta
@@ -220,7 +241,7 @@ class AflTarget(Target):
         master = kwargs.get('master')
         slave = kwargs.get('slave')
 
-        if master is not None and slave is not None:
+        if master and slave is not None:
             raise Exception('Master and slave flag can not be used together')
 
         fuzzer_name = os.path.basename(self.binary)
@@ -247,4 +268,5 @@ class Wrapper:
 class TmuxWrapper(Wrapper):
     def run(self, cmd):
         subprocess.Popen('tmux new-window "%s; bash -i"' % cmd, shell=True)
+        time.sleep(0.5)
         subprocess.check_output(['tmux', 'last-window'])
