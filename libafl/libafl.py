@@ -11,7 +11,6 @@ import time
 
 logging.basicConfig()
 logger = logging.getLogger('libafl')
-logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = argparse.ArgumentParser()
