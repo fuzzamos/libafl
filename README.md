@@ -1,4 +1,4 @@
-# libafl
+# libafl [![PyPI](https://img.shields.io/pypi/v/libafl.svg?maxAge=2592000)]()
 
 A library for compiling binaries and running them from python code. This library is not for fuzzing python code. This library is still in development, expect bugs and breaking API changes.
 
@@ -96,7 +96,7 @@ optional arguments:
   -h, --help            show this help message and exit
 ```
 
-More examples can be seen in my [afl-scripts](https://github.com/gsingh93/afl-scripts) repo.
+More examples can be seen in my [afl-scripts](https://github.com/gsingh93/afl-scripts) repo. See the source for full function signatures and all available methods.
 
 ## Why
 
